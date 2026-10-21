@@ -2,40 +2,12 @@ using UnityEngine;
 
 public class ResourceChest : MonoBehaviour
 {
-    [SerializeField] private Player player;
+    // Chest storage is unlimited.
+    public Inventory Storage { get; } = new Inventory(int.MaxValue);
 
-    public Player Player => player;
-
-    private void Awake()
+    /// <summary>Moves everything from the given inventory into this chest. Returns the amount moved.</summary>
+    public int DepositAllFrom(Inventory source)
     {
-        if (player == null)
-        {
-            player = FindAnyObjectByType<Player>();
-        }
-
-        if (player != null)
-        {
-            player.EnsureStorageInitialized();
-        }
-    }
-
-    public void BindPlayer(Player targetPlayer)
-    {
-        player = targetPlayer;
-        if (player != null)
-        {
-            player.EnsureStorageInitialized();
-            player.Chest ??= new Inventory(int.MaxValue);
-        }
-    }
-
-    public int DepositAllFromBackpack()
-    {
-        if (player == null)
-        {
-            return 0;
-        }
-
-        return player.DepositBackpackToChest();
+        return source != null ? source.TransferAllTo(Storage) : 0;
     }
 }

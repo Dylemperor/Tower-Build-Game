@@ -1,4 +1,3 @@
-
 using System.Collections;
 using UnityEngine;
 
@@ -11,6 +10,7 @@ public class CameraAreaTransition : MonoBehaviour
     }
 
     [Header("Camera")]
+    [Tooltip("Defaults to the main camera when left empty.")]
     [SerializeField] private Transform cameraTransform;
     [SerializeField] private Vector3 targetPosition;
 
@@ -20,28 +20,35 @@ public class CameraAreaTransition : MonoBehaviour
 
     private bool isTransitioning;
 
+    private void Awake()
+    {
+        if (cameraTransform == null && Camera.main != null)
+        {
+            cameraTransform = Camera.main.transform;
+        }
+    }
+
     private void OnTriggerEnter2D(Collider2D other)
     {
-        if (isTransitioning || !other.CompareTag("Player"))
+        if (isTransitioning || cameraTransform == null || !other.CompareTag("Player"))
+        {
             return;
+        }
 
         Rigidbody2D playerRb = other.attachedRigidbody;
-
-        if (playerRb == null)
+        if (playerRb == null || !IsMovingInTransitionDirection(playerRb.linearVelocity.x))
+        {
             return;
-
-        float horizontalVelocity = playerRb.linearVelocity.x;
-
-        // Only allow transitions in the intended direction.
-        if (direction == TransitionDirection.Right &&
-            horizontalVelocity <= 0f)
-            return;
-
-        if (direction == TransitionDirection.Left &&
-            horizontalVelocity >= 0f)
-            return;
+        }
 
         StartCoroutine(SlideCamera());
+    }
+
+    private bool IsMovingInTransitionDirection(float horizontalVelocity)
+    {
+        return direction == TransitionDirection.Right
+            ? horizontalVelocity > 0f
+            : horizontalVelocity < 0f;
     }
 
     private IEnumerator SlideCamera()
@@ -49,31 +56,15 @@ public class CameraAreaTransition : MonoBehaviour
         isTransitioning = true;
 
         Vector3 startPosition = cameraTransform.position;
-        Vector3 endPosition = new Vector3(
-            targetPosition.x,
-            targetPosition.y,
-            startPosition.z
-        );
+        // Keep the camera's own depth so it doesn't clip through the scene.
+        Vector3 endPosition = new Vector3(targetPosition.x, targetPosition.y, startPosition.z);
 
         float elapsed = 0f;
-
         while (elapsed < transitionDuration)
         {
             elapsed += Time.deltaTime;
-
-            float progress = Mathf.Clamp01(
-                elapsed / transitionDuration
-            );
-
-            float smoothProgress =
-                progress * progress * (3f - 2f * progress);
-
-            cameraTransform.position = Vector3.Lerp(
-                startPosition,
-                endPosition,
-                smoothProgress
-            );
-
+            float progress = Mathf.SmoothStep(0f, 1f, elapsed / transitionDuration);
+            cameraTransform.position = Vector3.Lerp(startPosition, endPosition, progress);
             yield return null;
         }
 

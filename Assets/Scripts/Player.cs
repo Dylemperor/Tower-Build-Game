@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.InputSystem;
 
@@ -6,44 +7,31 @@ public class Player : MonoBehaviour
     [Header("Input")]
     [SerializeField] private InputActionReference interactAction;
 
+    [Header("Interaction")]
+    [Tooltip("Trigger collider that defines how close the player must be to interact.")]
+    [SerializeField] private Collider2D interactionRange;
+
     [Header("Backpack")]
     [SerializeField] private int startingBackpackCapacity = 15;
     [SerializeField] private int backpackUpgradeCost = 25;
+    [SerializeField] private int backpackUpgradeCostIncrease = 10;
     [SerializeField] private int backpackUpgradeIncrease = 5;
     [SerializeField] private int money = 0;
 
-    [Header("Storage")]
-    [SerializeField] private Inventory backpack;
-    [SerializeField] private Inventory chest;
+    private readonly List<Collider2D> overlapResults = new List<Collider2D>();
+    private ContactFilter2D interactableFilter;
 
-    private ResourceNode nearbyResource;
-    private ResourceChest nearbyChest;
-
-    public Inventory Backpack { get => backpack; set => backpack = value ?? new Inventory(startingBackpackCapacity); }
-    public Inventory Chest { get => chest; set => chest = value ?? new Inventory(int.MaxValue); }
+    public Inventory Backpack { get; private set; }
     public int Money => money;
     public int BackpackUpgradeCost => backpackUpgradeCost;
     public int BackpackUpgradeIncrease => backpackUpgradeIncrease;
-    public ResourceNode NearbyResource => nearbyResource;
-    public ResourceChest NearbyChest => nearbyChest;
 
     private void Awake()
     {
-        if (backpack == null)
-        {
-            backpack = new Inventory(startingBackpackCapacity);
-        }
+        Backpack = new Inventory(startingBackpackCapacity);
 
-        if (chest == null)
-        {
-            chest = new Inventory(int.MaxValue);
-        }
-    }
-
-    public void EnsureStorageInitialized()
-    {
-        backpack ??= new Inventory(startingBackpackCapacity);
-        chest ??= new Inventory(int.MaxValue);
+        // Resource nodes and chests use trigger colliders, so include triggers.
+        interactableFilter.useTriggers = true;
     }
 
     private void OnEnable()
@@ -51,6 +39,7 @@ public class Player : MonoBehaviour
         if (interactAction != null)
         {
             interactAction.action.performed += OnInteractPerformed;
+            interactAction.action.Enable();
         }
     }
 
@@ -67,90 +56,33 @@ public class Player : MonoBehaviour
         TryInteract();
     }
 
-    private void OnTriggerEnter2D(Collider2D other)
-    {
-        ResourceNode resourceNode = other.GetComponent<ResourceNode>();
-        if (resourceNode != null)
-        {
-            nearbyResource = resourceNode;
-            return;
-        }
-
-        ResourceChest chestObject = other.GetComponent<ResourceChest>();
-        if (chestObject != null)
-        {
-            nearbyChest = chestObject;
-            chestObject.BindPlayer(this);
-            EnsureStorageInitialized();
-        }
-    }
-
-    private void OnTriggerExit2D(Collider2D other)
-    {
-        ResourceNode resourceNode = other.GetComponent<ResourceNode>();
-        if (resourceNode != null && nearbyResource == resourceNode)
-        {
-            nearbyResource = null;
-        }
-
-        ResourceChest chestObject = other.GetComponent<ResourceChest>();
-        if (chestObject != null && nearbyChest == chestObject)
-        {
-            nearbyChest = null;
-        }
-    }
-
+    /// <summary>Gathers from a nearby resource, or deposits into a nearby chest if there is no resource.</summary>
     public void TryInteract()
     {
-        EnsureStorageInitialized();
-
-        if (nearbyResource != null)
+        ResourceNode resourceNode = FindNearby<ResourceNode>();
+        if (resourceNode != null)
         {
-            TryGather(nearbyResource);
+            TryGather(resourceNode);
             return;
         }
 
-        if (nearbyChest != null)
+        ResourceChest chest = FindNearby<ResourceChest>();
+        if (chest != null)
         {
-            DepositBackpackToChest();
+            chest.DepositAllFrom(Backpack);
         }
     }
 
     public bool TryGather(ResourceNode resourceNode)
     {
-        EnsureStorageInitialized();
-
-        if (resourceNode == null || backpack == null || !resourceNode.CanGather)
+        if (resourceNode == null || !resourceNode.CanGather)
         {
             return false;
         }
 
-        int gatheredAmount = backpack.Add(resourceNode.ResourceType, resourceNode.GatherAmountPerInteraction);
-        if (gatheredAmount <= 0)
-        {
-            return false;
-        }
-
+        int gatheredAmount = Backpack.Add(resourceNode.ResourceType, resourceNode.NextGatherAmount);
         resourceNode.RemoveAmount(gatheredAmount);
-        return true;
-    }
-
-    public int DepositBackpackToChest()
-    {
-        EnsureStorageInitialized();
-
-        if (backpack == null || chest == null)
-        {
-            Debug.LogWarning("Player cannot deposit because backpack or chest inventory is null.");
-            return 0;
-        }
-
-        if (nearbyChest != null)
-        {
-            nearbyChest.BindPlayer(this);
-        }
-
-        return backpack.TransferAllTo(chest);
+        return gatheredAmount > 0;
     }
 
     public bool TryUpgradeBackpack()
@@ -161,18 +93,39 @@ public class Player : MonoBehaviour
         }
 
         money -= backpackUpgradeCost;
-        backpack.IncreaseCapacity(backpackUpgradeIncrease);
-        backpackUpgradeCost += 10;
+        Backpack.IncreaseCapacity(backpackUpgradeIncrease);
+        backpackUpgradeCost += backpackUpgradeCostIncrease;
         return true;
     }
 
     public void AddMoney(int amount)
     {
-        if (amount <= 0)
+        if (amount > 0)
         {
-            return;
+            money += amount;
+        }
+    }
+
+    // Checks what is currently inside the interaction range, so there is no
+    // enter/exit bookkeeping that can get out of sync.
+    private T FindNearby<T>() where T : Component
+    {
+        if (interactionRange == null)
+        {
+            Debug.LogWarning("Player has no interaction range collider assigned.", this);
+            return null;
         }
 
-        money += amount;
+        interactionRange.Overlap(interactableFilter, overlapResults);
+
+        foreach (Collider2D overlap in overlapResults)
+        {
+            if (overlap.TryGetComponent(out T component))
+            {
+                return component;
+            }
+        }
+
+        return null;
     }
 }

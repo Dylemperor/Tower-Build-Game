@@ -6,28 +6,34 @@ public class ResourceNode : MonoBehaviour
     [SerializeField] private int gatherAmountPerInteraction = 1;
     [SerializeField] private bool permanentlyInfinite = true;
 
-    private int currentAmount;
+    [Tooltip("How much this node holds. Ignored when the node is infinite.")]
+    [SerializeField] private int startingAmount = 10;
+
+    private int remainingAmount;
 
     public ResourceType ResourceType => resourceType;
-    public int GatherAmountPerInteraction => gatherAmountPerInteraction;
-    public int RemainingAmount => currentAmount;
-    public bool CanGather => permanentlyInfinite || currentAmount > 0;
+    public bool IsInfinite => permanentlyInfinite;
+    public int RemainingAmount => remainingAmount;
+
+    /// <summary>How much the next gather will yield (never more than the node has left).</summary>
+    public int NextGatherAmount => permanentlyInfinite
+        ? gatherAmountPerInteraction
+        : Mathf.Min(gatherAmountPerInteraction, remainingAmount);
+
+    public bool CanGather => NextGatherAmount > 0;
 
     private void Awake()
     {
-        currentAmount = permanentlyInfinite ? int.MaxValue : 0;
+        remainingAmount = Mathf.Max(0, startingAmount);
     }
 
     public void RemoveAmount(int amount)
     {
-        if (!permanentlyInfinite)
+        if (permanentlyInfinite || amount <= 0)
         {
-            if (amount <= 0)
-            {
-                return;
-            }
-
-            currentAmount = Mathf.Max(0, currentAmount - amount);
+            return;
         }
+
+        remainingAmount = Mathf.Max(0, remainingAmount - amount);
     }
 }

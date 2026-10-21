@@ -9,83 +9,59 @@ public enum ResourceType
     Stone
 }
 
-[System.Serializable]
+// Plain C# class (not serialized by Unity): create it from code with a capacity.
 public class Inventory
 {
     private readonly Dictionary<ResourceType, int> resources = new Dictionary<ResourceType, int>();
     private int capacity;
+    private int currentTotal;
 
-    public Inventory(int startingCapacity)
+    public Inventory(int capacity)
     {
-        capacity = Mathf.Max(0, startingCapacity);
+        this.capacity = Mathf.Max(0, capacity);
     }
 
     public int Capacity => capacity;
-    public int RemainingCapacity => Mathf.Max(0, capacity - CurrentTotal);
-    public int CurrentTotal
-    {
-        get
-        {
-            int total = 0;
-            foreach (var entry in resources)
-            {
-                total += entry.Value;
-            }
-            return total;
-        }
-    }
-
-    public bool IsFull => RemainingCapacity <= 0;
+    public int CurrentTotal => currentTotal;
+    public int RemainingCapacity => Mathf.Max(0, capacity - currentTotal);
+    public bool IsFull => RemainingCapacity == 0;
+    public IReadOnlyDictionary<ResourceType, int> Resources => resources;
 
     public int GetCount(ResourceType resourceType)
     {
-        if (resources.TryGetValue(resourceType, out int count))
-        {
-            return count;
-        }
-
-        return 0;
+        return resources.TryGetValue(resourceType, out int count) ? count : 0;
     }
 
-    public IReadOnlyDictionary<ResourceType, int> GetAllResources()
+    public bool Contains(ResourceType resourceType, int amount = 1)
     {
-        return resources;
+        return GetCount(resourceType) >= amount;
     }
 
     public void IncreaseCapacity(int amount)
     {
-        if (amount <= 0)
+        if (amount > 0)
         {
-            return;
+            capacity += amount;
         }
-
-        capacity += amount;
     }
 
+    /// <summary>Adds as much as fits. Returns the amount actually added.</summary>
     public int Add(ResourceType resourceType, int amount)
     {
-        if (amount <= 0)
+        int addedAmount = Mathf.Min(amount, RemainingCapacity);
+        if (addedAmount <= 0)
         {
             return 0;
         }
 
-        int acceptedAmount = Mathf.Min(amount, RemainingCapacity);
-        if (acceptedAmount <= 0)
-        {
-            return 0;
-        }
-
-        resources[resourceType] = GetCount(resourceType) + acceptedAmount;
-        return acceptedAmount;
+        resources[resourceType] = GetCount(resourceType) + addedAmount;
+        currentTotal += addedAmount;
+        return addedAmount;
     }
 
+    /// <summary>Removes up to the requested amount. Returns the amount actually removed.</summary>
     public int Remove(ResourceType resourceType, int amount)
     {
-        if (amount <= 0)
-        {
-            return 0;
-        }
-
         int currentAmount = GetCount(resourceType);
         int removedAmount = Mathf.Min(amount, currentAmount);
         if (removedAmount <= 0)
@@ -94,7 +70,7 @@ public class Inventory
         }
 
         int updatedAmount = currentAmount - removedAmount;
-        if (updatedAmount <= 0)
+        if (updatedAmount == 0)
         {
             resources.Remove(resourceType);
         }
@@ -103,9 +79,11 @@ public class Inventory
             resources[resourceType] = updatedAmount;
         }
 
+        currentTotal -= removedAmount;
         return removedAmount;
     }
 
+    /// <summary>Moves everything that fits into the target. Returns the total amount moved.</summary>
     public int TransferAllTo(Inventory target)
     {
         if (target == null)
@@ -115,22 +93,11 @@ public class Inventory
         }
 
         int movedTotal = 0;
-        List<ResourceType> resourceTypes = new List<ResourceType>(resources.Keys);
 
-        foreach (ResourceType resourceType in resourceTypes)
+        // Copy the keys because Remove() modifies the dictionary while we loop.
+        foreach (ResourceType resourceType in new List<ResourceType>(resources.Keys))
         {
-            int availableAmount = GetCount(resourceType);
-            if (availableAmount <= 0)
-            {
-                continue;
-            }
-
-            int movedAmount = target.Add(resourceType, availableAmount);
-            if (movedAmount <= 0)
-            {
-                continue;
-            }
-
+            int movedAmount = target.Add(resourceType, GetCount(resourceType));
             Remove(resourceType, movedAmount);
             movedTotal += movedAmount;
         }
@@ -141,10 +108,6 @@ public class Inventory
     public void Clear()
     {
         resources.Clear();
-    }
-
-    public bool Contains(ResourceType resourceType, int amount = 1)
-    {
-        return GetCount(resourceType) >= amount;
+        currentTotal = 0;
     }
 }

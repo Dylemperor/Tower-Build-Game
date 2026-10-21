@@ -1,26 +1,49 @@
 using UnityEngine;
 using UnityEngine.InputSystem;
 
-public class movement : MonoBehaviour
+[RequireComponent(typeof(Rigidbody2D))]
+public class PlayerMovement : MonoBehaviour
 {
-    public float moveSpeed = 5f;
-    public float jumpForce = 15f;
-    public float moveInput;
-    public Rigidbody2D rb;
-    float horizontalMovement;
-    void Update()
+    [SerializeField] private float moveSpeed = 5f;
+    [SerializeField] private float jumpForce = 15f;
+    [SerializeField] private Rigidbody2D rb;
+
+    // Only contacts on surfaces facing mostly upward count as ground.
+    private const float MinGroundNormalAngle = 45f;
+    private const float MaxGroundNormalAngle = 135f;
+
+    private ContactFilter2D groundFilter;
+    private float horizontalInput;
+
+    private bool IsGrounded => rb.IsTouching(groundFilter);
+
+    private void Awake()
     {
-        rb.linearVelocity = new Vector2(horizontalMovement * moveSpeed, rb.linearVelocity.y);
+        if (rb == null)
+        {
+            rb = GetComponent<Rigidbody2D>();
+        }
+
+        groundFilter.SetNormalAngle(MinGroundNormalAngle, MaxGroundNormalAngle);
     }
+
+    private void FixedUpdate()
+    {
+        rb.linearVelocity = new Vector2(horizontalInput * moveSpeed, rb.linearVelocity.y);
+    }
+
+    // Called by the PlayerInput component's "Move" event.
     public void Move(InputAction.CallbackContext context)
     {
-        horizontalMovement = context.ReadValue<Vector2>().x;
+        horizontalInput = context.ReadValue<Vector2>().x;
     }
+
+    // Called by the PlayerInput component's "Jump" event.
     public void Jump(InputAction.CallbackContext context)
     {
-        if (context.performed && Mathf.Abs(rb.linearVelocity.y) < 0.001f)
+        if (context.performed && IsGrounded)
         {
-            rb.AddForce(new Vector2(0f, jumpForce), ForceMode2D.Impulse);
+            rb.AddForce(Vector2.up * jumpForce, ForceMode2D.Impulse);
         }
     }
 }
